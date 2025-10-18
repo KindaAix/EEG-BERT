@@ -1,0 +1,72 @@
+# personal
+res/
+read.py
+test.py
+*.txt
+*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.pyo
+*.pyd
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# environment/dependencies
+.env
+.venv/
+venv/
+ENV/
+env/
+*.conda
+*.virtualenv
+
+# models/data/outputs
+*.mat
+*.h5
+*.hdf5
+*.ckpt
+*.pth
+*.pt
+*.npz
+*.npy
+*.csv
+*.tsv
+*.log
+*.sqlite3
+*.db
+*.dat
+*.tar
+*.tar.gz
+*.zip
+
+# res
+runs/
+logs/
+output/
+results/
+checkpoints/
+tensorboard/
+tb_logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# other
+*.bak
+*.tmp

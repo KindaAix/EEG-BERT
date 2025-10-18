@@ -1,0 +1,24 @@
+{
+  "data_root": "dataset/EEG-Tokens",
+  "kmeans_path": "kmeans.pt",
+  "batch_size": 128,
+  "num_workers": 4,
+
+  "n_clusters": 256,
+  "embed_dim": 128,
+  "n_classes": 7,
+  "hidden_size": 64,
+  "num_layers": 1,
+  "dropout": 0.5,
+
+  "lr": 0.001,
+  "weight_decay": 1e-5,
+  "class_weights": [1.03, 0.89, 0.92, 1.53, 1.58, 0.80, 0.78],
+  "label_smoothing": 0.0,
+
+  "device": "cuda",
+  "epochs": 100,
+  "early_stop": 10,
+  "save_dir": "res",
+  "log_name": "rcnn"
+}
