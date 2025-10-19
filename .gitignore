@@ -2,6 +2,7 @@
 res/
 read.py
 test.py
+eeg_data_path_v1.2.json
 *.txt
 *.onnx
 
