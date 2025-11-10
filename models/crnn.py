@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class EEG_RCNN(nn.Module):
+class EEG_CRNN(nn.Module):
     def __init__(self, n_clusters=256, embed_dim=128, n_classes=7, hidden_size=64, num_layers=1, dropout=0.5):
         """
         Args:
@@ -13,7 +13,7 @@ class EEG_RCNN(nn.Module):
             num_layers: RNN 层数
             dropout: dropout 比例
         """
-        super(EEG_RCNN, self).__init__()
+        super(EEG_CRNN, self).__init__()
         # self.embedding = nn.Embedding(n_clusters, embed_dim)
 
         # CNN 提取空间特征
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     # ----------------- 设置 -----------------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = EEG_RCNN().to(device)
+    model = EEG_CRNN().to(device)
     print(model)
 
     # ----------------- Dummy 输入 -----------------

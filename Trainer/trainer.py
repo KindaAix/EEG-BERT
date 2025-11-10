@@ -2,17 +2,19 @@
 import os
 import json
 import torch
+import torch.nn as nn
 import pandas as pd
 from tqdm import tqdm
 from datetime import datetime
 from Logger.logger import Logger
 from models.metrics import Metrics
 from uilts.Visualizer import MetricsVisualizer
+from models.loss import EEGLoss
 
 
 class Trainer:
     def __init__(self, model, train_loader, val_loader, test_loader,
-                 criterion, optimizer, scheduler=None,
+                 criterion=None, optimizer=None, scheduler=None,
                  device="cuda", res="res", log_name="train", config=None):
         self.config = config
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
@@ -20,32 +22,29 @@ class Trainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_loader = test_loader
-
-        self.criterion = criterion
-        self.optimizer = optimizer
+        self.MLM_Loss, self.ESS_Loss = criterion
+        adamw = torch.optim.AdamW(self.model.parameters())
+        self.optimizer = optimizer if optimizer is not None else adamw
         self.scheduler = scheduler
 
         self.metrics = Metrics()
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.exp_dir = os.path.join(res, f"exp-{timestamp}")  # 根实验目录
-        self.log_dir = os.path.join(self.exp_dir, "logs")
-        self.ckpt_dir = os.path.join(self.exp_dir, "checkpoints")
-        self.summary_dir = os.path.join(self.exp_dir, "summary")
+        self.exp_dir = os.path.join(res, f"exp-{timestamp}")  # exp path
+        self.log_dir = os.path.join(self.exp_dir, "logs")  # log path
+        self.ckpt_dir = os.path.join(self.exp_dir, "checkpoints")  # checkpoint path
+        self.summary_dir = os.path.join(self.exp_dir, "summary")  # summary path
 
         for d in [self.log_dir, self.ckpt_dir, self.summary_dir]:
             os.makedirs(d, exist_ok=True)
 
-        cfg_path = os.path.join(self.exp_dir, "config.json")
+        cfg_path = os.path.join(self.exp_dir, "config.json")  # save config
         with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(self.config, f, indent=4)  # 假设 Trainer 初始化时传入了 config
-        # 日志器和可视化器使用对应路径
+            json.dump(self.config, f, indent=4)
         self.logger = Logger(save_dir=self.log_dir, log_name=log_name)
         self.visualizer = MetricsVisualizer(save_dir=self.summary_dir)
 
-        # 保存权重默认路径
         self.save_dir = self.ckpt_dir
 
-        # 历史指标保存
         self.history = {
             "train": {"loss": [], "accuracy": [], "top_2_accuracy": []},
             "val": {"loss": [], "accuracy": [], "precision": [], "recall": [], "f1": [], "top_2_accuracy": []}
@@ -102,7 +101,7 @@ class Trainer:
                 if k in self.history["val"]:
                     self.history["val"][k].append(v)
 
-            # 日志与 TensorBoard
+            # Logger
             self.logger.info(f"Train: {train_metrics}")
             self.logger.info(f"Val:   {val_metrics}")
             for k, v in train_metrics.items():
@@ -110,15 +109,19 @@ class Trainer:
             for k, v in val_metrics.items():
                 self.logger.add_scalar(f"val/{k}", v, epoch)
 
-            # 学习率调度
+
+            # Scheduler
             if self.scheduler:
                 self.scheduler.step(val_metrics["loss"])
 
-            # 模型保存 (按最佳 f1)
+
+            # save *.pt of model
+            if epoch // 20 == 0:
+                torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir, f"epoch_{epoch}.pt"))
             if val_metrics["f1"] > best_val_f1:
                 best_val_f1 = val_metrics["f1"]
                 patience = 0
-                torch.save(self.model.state_dict(), os.path.join(self.save_dir, "best_model.pt"))
+                torch.save(self.model.state_dict(), os.path.join(self.ckpt_dir, "best_model.pt"))
                 self.logger.info("Best model saved.")
             else:
                 patience += 1
@@ -133,7 +136,7 @@ class Trainer:
         self.visualizer.plot_train_val(self.history["train"], self.history["val"])
 
     def test(self):
-        self.model.load_state_dict(torch.load(os.path.join(self.save_dir, "best_model.pt"), map_location=self.device))
+        self.model.load_state_dict(torch.load(os.path.join(self.ckpt_dir, "best_model.pt"), map_location=self.device))
         self.model.eval()
 
         all_logits, all_labels = [], []
@@ -156,3 +159,4 @@ class Trainer:
         for phase in ["train", "val"]:
             df = pd.DataFrame(self.history[phase])
             df.to_csv(os.path.join(self.log_dir, f"{phase}_history.csv"), index=False)
+
