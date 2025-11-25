@@ -2,7 +2,7 @@ import random
 import torch
 from torch import nn
 import numpy as np
-from models.bert_arch import BERT_arch as bert
+from models.bert import BERT
 from models.embedding import BERTEmbedding
 
 
@@ -81,7 +81,7 @@ class PretrainTask(nn.Module):
     def __init__(self, hidden_dim: int,):
         super(PretrainTask).__init__()
         self.embedding = BERTEmbedding()
-        self.encoder = bert()
+        self.encoder = BERT()
         self.CMLM = ChannelMLMTask()
         self.ESS = ESSTask()
 

@@ -1,14 +1,16 @@
 {
   "data_root": "dataset/EEG-Tokens",
-  "kmeans_path": "kmeans.pt",
   "batch_size": 128,
   "num_workers": 4,
 
-  "n_clusters": 256,
-  "embed_dim": 128,
+  "n_clusters": 128,
+  "k_means_max_epochs": 5,
+
+  "embedding_size": 1024,
+  "n_features": 744,
+  "n_heads": 8,
   "n_classes": 7,
-  "hidden_size": 64,
-  "num_layers": 1,
+  "num_layers": 12,
   "dropout": 0.5,
 
   "lr": 0.001,
