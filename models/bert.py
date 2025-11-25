@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from encoder import BaseEncoder
+from embedding import WhisperEmbedding
 
 class BERT(nn.Module):
     """
@@ -8,6 +9,8 @@ class BERT(nn.Module):
     """
     def __init__(self, config=None):
         super().__init__()
+        self.config = config
+        self.embedding = WhisperEmbedding(config)
         self.encoder = BaseEncoder(
             seq_len=config.seq_len,
             dim=config.embedding_size,
@@ -26,15 +29,19 @@ class BERT(nn.Module):
             [self.encoder for _ in range(config.num_layers)]
         )
     def forward(self, x: torch.Tensor, aux_loss=0.0):
-        for layer in self.encoder_layers:
+        x = self.embedding(x)
+        for ilayer, layer in enumerate(self.encoder_layers):
             x, aux_loss = layer(x, aux_loss)
-        return x, aux_loss
+            if ilayer == 2:
+                feature = x
+
+        return x, aux_loss, feature
     
 
 if __name__ == "__main__":
-    x = torch.randn(64, 80, 1024)
+    x = torch.randn(16, 160, 744)  # (B, seq_len, n_features)
     class Config:
-        seq_len = 80
+        seq_len = 160
         embedding_size = 1024
         num_heads = 8
         kernel_size = 9
@@ -47,10 +54,12 @@ if __name__ == "__main__":
         expert_capacity_factor = 1.0
         load_balancing_weight = 0.01
         num_layers = 12
+        n_cluster = 128
+        n_features = 744
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = BERT(Config()).to(device)
     x = x.to(device)
     output = model(x)
-    print(output[0].shape)
+    print(output[2].shape)
     print(f'{output[1].item():.4f}')

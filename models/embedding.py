@@ -7,7 +7,7 @@ class WhisperEmbedding(nn.Module):
         self.config = config
         self.conv1 = nn.Conv1d(in_channels=config.n_features, out_channels=config.embedding_size, kernel_size=3, padding=1)
         self.gelu = nn.GELU()
-        self.conv2 = nn.Conv1d(in_channels=config.embedding_size, out_channels=config.embedding_size, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv1d(in_channels=config.embedding_size, out_channels=config.embedding_size, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
         """
