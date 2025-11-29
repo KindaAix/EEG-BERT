@@ -7,21 +7,19 @@ from models.pretrain_model import BERTLM
 from models.bert import BERT
 from optim_schedule import ScheduledOptim
 
+from models.loss import PretrainLoss
+from models.kmeans import torch_kmeans
+from uilts.random_mask import random_mask
+
 import tqdm
 
-"""
-mask_function: random mask input tensor
-kmeans: kmeans model for clustering the input features
-random single for continuous masking
-loss function: cross entropy loss for classification tasks
-"""
 
 class BERTTrainer:
     """
     BERTTrainer make the pretrained BERT model with two LM training method.
 
         1. Channel Masked Language Model : 3.3.1 Task #1: Masked LM
-        2. Emotional Sentence Segmentation : 3.3.2 Task #2: Emotional Sentence Segmentation
+        2. Emotional Change Detection Model : 3.3.2 Task #2: Emotional Change Detection
 
     please check the details on README.md with simple example.
 
@@ -30,7 +28,9 @@ class BERTTrainer:
     def __init__(self, bert: BERT,
                  train_dataloader: DataLoader, test_dataloader: DataLoader = None,
                  lr: float = 1e-4, betas=(0.9, 0.999), weight_decay: float = 0.01, warmup_steps=10000,
-                 with_cuda: bool = True, cuda_devices=None, log_freq: int = 10):
+                 with_cuda: bool = True, cuda_devices=None, log_freq: int = 10,
+                 class_weights=None, label_smoothing=0.0, n_clusters=128, kmeans_max_iter=5, random_state=42,
+                 noise=None):
         """
         :param bert: BERT model which you want to train
         :param vocab_size: total word vocab size
@@ -41,12 +41,17 @@ class BERTTrainer:
         :param weight_decay: Adam optimizer weight decay param
         :param with_cuda: traning with cuda
         :param log_freq: logging frequency of the batch iteration
+        :param class_weights: classification task class weights
+        :param label_smoothing: classification task label smoothing
+        :param n_clusters: number of clusters for kmeans
+        :param kmeans_max_iter: maximum iterations for kmeans
+        :param random_state: random seed for kmeans
         """
 
         # Setup cuda device for BERT training, argument -c, --cuda should be true
         cuda_condition = torch.cuda.is_available() and with_cuda
         self.device = torch.device("cuda:0" if cuda_condition else "cpu")
-
+        self.kmeans = torch_kmeans(n_clusters=n_clusters, max_iter=kmeans_max_iter, random_state=random_state, device=self.device)
         # This BERT model will be saved every epoch
         self.bert = bert
         # Initialize the BERT Language Model, with BERT model
@@ -67,10 +72,10 @@ class BERTTrainer:
 
         # Using Negative Log Likelihood Loss function for predicting the masked_token
         """"""
-        self.criterion = nn.NLLLoss(ignore_index=0)  # 损失函数需要换成交叉熵损失
-
+        self.criterion = PretrainLoss(class_weights=class_weights, label_smoothing=label_smoothing)
+        self.random_mask = random_mask
         self.log_freq = log_freq
-
+        self.noise = noise
         print("Total Parameters:", sum([p.nelement() for p in self.model.parameters()]))
 
     def train(self, epoch):
@@ -103,38 +108,43 @@ class BERTTrainer:
         total_element = 0
 
         for i, data in data_iter:
-            # 0. batch_data will be sent into the device(GPU or cpu), bert_input must be masked before sent to the model
-            data["bert_input"] = self.random_mask(data["bert_input"]).to(self.device)  # masked input [B, seq_len, n_features]
+            # 0. batch_data will be sent into the device(GPU or cpu)
             data["is_change"] = data["is_change"].to(self.device)
-            cluster_label_1st = self.kmeans().predict(data["bert_input"].reshape(-1, data["bert_input"].shape[-1])).to(self.device)  # [B*seq_len, n_features]
-            # 1. forward the ess and cmlm model
-            ess_output, cmlm_output, aux_loss, _ = self.model.forward(data["bert_input"], aux_loss=0.0)
-
+            cluster_label_1st = self.kmeans.fit_and_predict_labels(data["bert_input"])  # [B*seq_len, n_features]
+            # 1. forward the ecd and cmlm model, bert_input must be masked before sent to the model
+            data["bert_input"] = self.random_mask(data["bert_input"], noise=self.noise)  # masked input [B, seq_len, n_features]
+            ecd_output, cmlm_output, aux_loss, _ = self.model.forward(data["bert_input"], aux_loss=0.0)
             # 2-1. CE loss of is_change classification result
-            ess_loss = self.criterion(ess_output, data["is_change"])
+            ecd_loss = self.criterion.ECD_Loss(ecd_output, data["is_change"])
 
             # 2-2. CE loss of predicting masked token cluster id
-            cmlm_loss = self.criterion(cmlm_output, cluster_label_1st)
+            cmlm_loss = self.criterion.Channel_MLM_Loss(cmlm_output, cluster_label_1st)
 
-            # 2-3. Adding ess_loss, mask_loss and aux_loss : 3.4 Pre-training Procedure
-            loss = ess_loss + cmlm_loss + aux_loss
+            # 2-3. Adding ecd_loss, mask_loss and aux_loss : 3.4 Pre-training Procedure
+            loss = ecd_loss + cmlm_loss + aux_loss
 
             # 3. backward and optimization only in train
             if train:
+                # First update: based on input clustering
                 self.optim_schedule.zero_grad()
                 loss.backward()
-                # re-update the parameters of the model           
-                ess_output, cmlm_output, aux_loss, feature = self.model.forward(data["bert_input"], aux_loss=0.0)
-                cluster_label_2nd = self.kmeans().predict(feature.reshape(-1, data["bert_input"].shape[-1])).to(self.device)  # [B*seq_len, embedding_size]
-                ess_loss = self.criterion(ess_output, data["is_change"])
-                cmlm_loss = self.criterion(cmlm_output, cluster_label_2nd)
-                loss = ess_loss + cmlm_loss + aux_loss
-
+                self.optim_schedule.step_and_update_lr()
+                
+                # Re-forward with updated model to get intermediate features
+                ecd_output, cmlm_output, aux_loss, feature = self.model.forward(data["bert_input"], aux_loss=0.0)
+                cluster_label_2nd = self.kmeans.fit_and_predict_labels(feature)  # [B*seq_len, embedding_size]
+                
+                # Second loss: based on feature clustering
+                ecd_loss = self.criterion.ECD_Loss(ecd_output, data["is_change"])
+                cmlm_loss = self.criterion.Channel_MLM_Loss(cmlm_output, cluster_label_2nd)
+                loss = ecd_loss + cmlm_loss + aux_loss
+                
+                # Second update
                 self.optim_schedule.zero_grad()
                 loss.backward()
                 self.optim_schedule.step_and_update_lr()
             # next sentence prediction accuracy
-            correct = ess_output.argmax(dim=-1).eq(data["is_change"]).sum().item()
+            correct = ecd_output.argmax(dim=-1).eq(data["is_change"]).sum().item()
             avg_loss += loss.item()
             total_correct += correct
             total_element += data["is_change"].nelement()

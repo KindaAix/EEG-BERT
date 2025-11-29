@@ -9,13 +9,13 @@ class BERTLM(nn.Module):
         super().__init__()
         self.bert = bert
         self.cmlm = ChannelMLMTask(hidden_dim=bert.config.embedding_size, out_dim=bert.config.n_cluster)
-        self.ess = ESSTask(hidden_dim=bert.config.seq_len)
+        self.ecd = ECDTask(hidden_dim=bert.config.seq_len)
 
     def forward(self, x: torch.Tensor, aux_loss=0.0):
         x, aux_loss, feature = self.bert(x, aux_loss)
         cmlm_output = self.cmlm(x)
-        ess_output = self.ess(x)
-        return cmlm_output, ess_output, aux_loss, feature
+        ecd_output = self.ecd(x)
+        return cmlm_output, ecd_output, aux_loss, feature
 
 
 class ChannelMLMTask(nn.Module):
@@ -56,7 +56,7 @@ class ChannelMLMTask(nn.Module):
         return ChannelMLMTaskOutput
 
 
-class ESSTask(nn.Module):
+class ECDTask(nn.Module):
     def __init__(self, hidden_dim: int):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool1d(1)
